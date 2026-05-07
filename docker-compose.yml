@@ -1,5 +1,6 @@
 services:
   backend:
+    container_name: autohire-backend-1
     build:
       context: ./backend
       dockerfile: Dockerfile
@@ -15,12 +16,18 @@ services:
         condition: service_healthy
       cache:
         condition: service_healthy
+    healthcheck:
+      test: ["CMD", "curl", "-fsS", "http://localhost:8000/api/health"]
+      interval: 5s
+      retries: 3
+      start_period: 20s
     logging:
       options:
         max-size: "50m"
         max-file: "3"
 
   web:
+    container_name: autohire-web-1
     build:
       context: ./frontend
       dockerfile: Dockerfile
@@ -32,8 +39,14 @@ services:
       NEXTAUTH_URL: ${NEXTAUTH_URL}
     depends_on:
       - backend
+    healthcheck:
+      test: ["CMD-SHELL", "wget -qO- http://localhost:3000 >/dev/null 2>&1"]
+      interval: 5s
+      retries: 3
+      start_period: 20s
 
   db:
+    container_name: autohire-db-1
     image: postgres:16-alpine
     environment:
       POSTGRES_USER: autohire
@@ -53,6 +66,7 @@ services:
         max-file: "3"
 
   cache:
+    container_name: autohire-cache-1
     image: redis:7.2-alpine
     command: ["redis-server", "--save", "60", "1", "--loglevel", "warning"]
     ports:
