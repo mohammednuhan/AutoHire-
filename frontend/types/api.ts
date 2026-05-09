@@ -121,6 +121,13 @@ export interface JobResponse {
   recommendation?: RecommendationEnum | null;
 }
 
+export interface JobsPageResponse {
+  page: number;
+  per_page: number;
+  total: number;
+  items: JobResponse[];
+}
+
 export interface ScoreBreakdown {
   total_score: number;
   technical_match?: number | null;
@@ -237,6 +244,15 @@ export interface TaskResponse {
   apps_completed: number;
   result_summary?: string | null;
   error_message?: string | null;
+}
+
+export interface AgentRunRequest {
+  boards?: string[] | null;
+}
+
+export interface AgentRunResponse {
+  task_id: UUID;
+  status: "started";
 }
 
 export interface MetricsResponse {
@@ -381,7 +397,13 @@ export interface MorningSummaryEvent extends WebSocketEventBase {
 
 export interface ErrorEvent extends WebSocketEventBase {
   event: "ERROR";
-  error_code: "LLM_FAILURE" | "RUNGUARD_FAIL_INTERNET" | "DISK_FULL" | "REDIS_UNAVAILABLE";
+  error_code:
+    | "LLM_FAILURE"
+    | "RUNGUARD_FAIL_INTERNET"
+    | "RUNGUARD_FAIL_DB"
+    | "DISK_FULL"
+    | "REDIS_UNAVAILABLE"
+    | "SCAN_FAILED";
   message: string;
 }
 

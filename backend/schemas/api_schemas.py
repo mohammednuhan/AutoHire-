@@ -118,6 +118,13 @@ class JobResponse(BaseModel):
     recommendation: Literal["APPLY", "SKIP", "STRETCH"] | None = None
 
 
+class JobsPageResponse(BaseModel):
+    page: int
+    per_page: int
+    total: int
+    items: list[JobResponse]
+
+
 class ScoreBreakdown(BaseModel):
     total_score: int = Field(ge=0, le=100)
     technical_match: int | None = Field(default=None, ge=0, le=100)
@@ -244,6 +251,15 @@ class TaskResponse(BaseModel):
     apps_completed: int = 0
     result_summary: str | None = None
     error_message: str | None = None
+
+
+class AgentRunRequest(BaseModel):
+    boards: list[str] | None = None
+
+
+class AgentRunResponse(BaseModel):
+    task_id: UUID
+    status: Literal["started"]
 
 
 class MetricsResponse(BaseModel):
@@ -389,7 +405,14 @@ class MorningSummaryEvent(WebSocketEvent):
 
 class ErrorEvent(WebSocketEvent):
     event: Literal["ERROR"] = "ERROR"
-    error_code: Literal["LLM_FAILURE", "RUNGUARD_FAIL_INTERNET", "DISK_FULL", "REDIS_UNAVAILABLE"]
+    error_code: Literal[
+        "LLM_FAILURE",
+        "RUNGUARD_FAIL_INTERNET",
+        "RUNGUARD_FAIL_DB",
+        "DISK_FULL",
+        "REDIS_UNAVAILABLE",
+        "SCAN_FAILED",
+    ]
     message: str
 
 

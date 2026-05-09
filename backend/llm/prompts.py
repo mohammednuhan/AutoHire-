@@ -70,3 +70,50 @@ Extract all information from this resume and return it as a JSON object with thi
 RESUME TEXT:
 {raw_text}
 """
+
+JOB_SCORING_SYSTEM = """
+You are evaluating how well a job matches a candidate's profile.
+Return ONLY a JSON object. No preamble, no markdown, no backticks.
+Be strict and honest - do not inflate scores. A realistic score matters more than an encouraging one.
+"""
+
+JOB_SCORING_PROMPT = """
+Score this job against the candidate profile on a scale of 0-100.
+
+CANDIDATE PROFILE (static - always the same for this user):
+Name: {full_name}
+Skills: {skills}
+Experience: {experience}
+Education: {education}
+Preferred roles: {target_roles}
+Preferred locations: {preferred_locations}
+Work type preference: {work_type}
+
+JOB TO SCORE (dynamic):
+Title: {title}
+Company: {company}
+Location: {location}
+Work type: {job_work_type}
+Description: {description}
+
+Scoring weights:
+- Technical skills match (40%): What % of required skills does candidate have?
+- Experience level fit (25%): Does their experience level match what's asked?
+- Domain/industry match (15%): Is this the type of work they've done or want?
+- Location/work type match (10%): Does location and remote/onsite preference align?
+- Growth potential (10%): Would this role advance their career meaningfully?
+
+Return ONLY this JSON:
+{{
+  "total_score": integer 0-100,
+  "technical_match": integer 0-100,
+  "experience_match": integer 0-100,
+  "domain_match": integer 0-100,
+  "location_match": integer 0-100,
+  "growth_potential": integer 0-100,
+  "missing_skills": ["skill1", "skill2"],
+  "matching_skills": ["skill1", "skill2"],
+  "score_explanation": "2-3 sentence plain English explanation of why this score",
+  "recommendation": "APPLY" or "SKIP" or "STRETCH"
+}}
+"""

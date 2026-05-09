@@ -15,7 +15,9 @@ from fastapi.exceptions import RequestValidationError
 from redis.asyncio import Redis
 from sqlalchemy import text
 
+from agent.scanner import start_scheduler, stop_scheduler
 from api.auth import decode_access_token, router as auth_router
+from api.jobs import router as jobs_router
 from api.resume import router as resume_router
 from database.session import engine
 from schemas.api_schemas import (
@@ -23,10 +25,7 @@ from schemas.api_schemas import (
     ApplicationDetailResponse,
     ApplicationListItem,
     ErrorResponse,
-    JobDetailResponse,
-    JobResponse,
     MetricsResponse,
-    TaskResponse,
 )
 from storage import data_dir
 from websocket import websocket_manager
@@ -98,6 +97,12 @@ async def auth_middleware(request: Request, call_next: Any) -> Any:
 async def startup() -> None:
     data_dir()
     await asyncio.to_thread(run_migrations)
+    start_scheduler()
+
+
+@app.on_event("shutdown")
+async def shutdown() -> None:
+    await stop_scheduler()
 
 
 @app.get("/api/health", tags=["system"])
@@ -126,34 +131,8 @@ async def websocket_endpoint(websocket: WebSocket) -> None:
 
 app.include_router(auth_router)
 app.include_router(resume_router)
+app.include_router(jobs_router)
 app.mount("/api/files", StaticFiles(directory=str(data_dir())), name="files")
-
-
-@app.get(
-    "/api/jobs",
-    response_model=list[JobResponse] | ErrorResponse,
-    tags=["jobs"],
-)
-async def list_jobs() -> Any:
-    return not_implemented("Job listing is not implemented.")
-
-
-@app.get(
-    "/api/jobs/{job_id}",
-    response_model=JobDetailResponse | ErrorResponse,
-    tags=["jobs"],
-)
-async def get_job(job_id: str) -> Any:
-    return not_implemented(f"Job detail retrieval is not implemented for job {job_id}.")
-
-
-@app.post(
-    "/api/jobs/scan",
-    response_model=TaskResponse | ErrorResponse,
-    tags=["jobs"],
-)
-async def scan_jobs() -> Any:
-    return not_implemented("Job scanning is not implemented.")
 
 
 @app.get(
@@ -210,15 +189,6 @@ async def get_agent_status() -> Any:
 )
 async def stop_agent() -> Any:
     return not_implemented("Agent stop is not implemented.")
-
-
-@app.get(
-    "/api/tasks",
-    response_model=list[TaskResponse] | ErrorResponse,
-    tags=["tasks"],
-)
-async def list_tasks() -> Any:
-    return not_implemented("Task listing is not implemented.")
 
 
 @app.get(
