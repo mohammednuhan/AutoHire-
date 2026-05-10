@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+import base64
 import json
 import logging
 import os
@@ -41,8 +42,8 @@ class LLMRouter:
                 "maximum": ("claude-sonnet-4-6", False),
             },
             "write": {
-                "fast": ("gemini-flash", False),
-                "balanced": ("claude-sonnet-4-6", False),
+                "fast": ("claude-sonnet-4-6", True),
+                "balanced": ("claude-sonnet-4-6", True),
                 "maximum": ("claude-sonnet-4-6", True),
             },
         }
@@ -60,9 +61,20 @@ class LLMRouter:
         model, extended_thinking = self._select_model(task_type)
         try:
             if model.startswith("ollama/"):
-                result = await self._call_ollama(model.removeprefix("ollama/"), system, prompt, response_format)
+                result = await self._call_ollama(
+                    model.removeprefix("ollama/"),
+                    system,
+                    prompt,
+                    response_format,
+                )
             elif model.startswith("claude-"):
-                result = await self._call_claude(model, system, prompt, response_format, extended_thinking)
+                result = await self._call_claude(
+                    model,
+                    system,
+                    prompt,
+                    response_format,
+                    extended_thinking,
+                )
             else:
                 result = await self._call_gemini(model, system, prompt, response_format)
             latency_ms = round((time.perf_counter() - started) * 1000)
@@ -108,13 +120,110 @@ class LLMRouter:
                 )
         raise LLMFailure(f"LLM response failed after {max_retries} attempts: {last_error}")
 
+    async def call_vision(
+        self,
+        task_type: str,
+        prompt: str,
+        image_bytes: bytes,
+        system: str = "",
+        response_format: str = "text",
+        trace_id: str | None = None,
+        media_type: str = "image/png",
+    ) -> str:
+        started = time.perf_counter()
+        model, extended_thinking = self._select_model(task_type)
+        try:
+            if model.startswith("ollama/"):
+                encoded = base64.b64encode(image_bytes).decode("ascii")
+                result = await self._call_ollama(
+                    model.removeprefix("ollama/"),
+                    system,
+                    f"{prompt}\n\nScreenshot base64 PNG:\n{encoded}",
+                    response_format,
+                )
+            elif model.startswith("claude-"):
+                result = await self._call_claude_vision(
+                    model,
+                    system,
+                    prompt,
+                    image_bytes,
+                    response_format,
+                    extended_thinking,
+                    media_type,
+                )
+            else:
+                result = await self._call_gemini_vision(
+                    model,
+                    system,
+                    prompt,
+                    image_bytes,
+                    response_format,
+                )
+            latency_ms = round((time.perf_counter() - started) * 1000)
+            logger.info(
+                "llm_vision_call",
+                extra={
+                    "model": model,
+                    "tokens": None,
+                    "task_type": task_type,
+                    "trace_id": trace_id,
+                    "latency_ms": latency_ms,
+                },
+            )
+            return result
+        except Exception as exc:
+            logger.exception(
+                "llm_vision_call_failed",
+                extra={"model": model, "task_type": task_type, "trace_id": trace_id},
+            )
+            raise LLMFailure(str(exc)) from exc
+
+    async def call_vision_with_retry(
+        self,
+        task_type: str,
+        prompt: str,
+        image_bytes: bytes,
+        system: str = "",
+        response_format: str = "text",
+        max_retries: int = 3,
+        trace_id: str | None = None,
+        media_type: str = "image/png",
+    ) -> str:
+        last_error: Exception | None = None
+        for attempt in range(1, max_retries + 1):
+            try:
+                response = await self.call_vision(
+                    task_type,
+                    prompt,
+                    image_bytes,
+                    system,
+                    response_format,
+                    trace_id,
+                    media_type,
+                )
+                if response_format == "json":
+                    json.loads(response)
+                return response
+            except Exception as exc:
+                last_error = exc
+                logger.warning(
+                    "llm_vision_retry",
+                    extra={"attempt": attempt, "task_type": task_type, "trace_id": trace_id},
+                )
+        raise LLMFailure(f"LLM vision response failed after {max_retries} attempts: {last_error}")
+
     async def _call_gemini(self, model: str, system: str, prompt: str, response_format: str) -> str:
         api_key = os.getenv("GEMINI_API_KEY")
         if not api_key:
             raise LLMFailure("GEMINI_API_KEY is not configured")
         genai.configure(api_key=api_key)
-        generation_config = {"response_mime_type": "application/json"} if response_format == "json" else None
-        gemini_model = genai.GenerativeModel(model_name="gemini-2.0-flash", system_instruction=system)
+        generation_config = (
+            {"response_mime_type": "application/json"} if response_format == "json" else None
+        )
+        gemini_model = genai.GenerativeModel(
+            model_name="gemini-2.0-flash",
+            system_instruction=system,
+        )
         response = await asyncio.to_thread(
             gemini_model.generate_content,
             prompt,
@@ -122,7 +231,40 @@ class LLMRouter:
         )
         return response.text
 
-    async def _call_claude(self, model: str, system: str, prompt: str, response_format: str, extended_thinking: bool) -> str:
+    async def _call_gemini_vision(
+        self,
+        model: str,
+        system: str,
+        prompt: str,
+        image_bytes: bytes,
+        response_format: str,
+    ) -> str:
+        api_key = os.getenv("GEMINI_API_KEY")
+        if not api_key:
+            raise LLMFailure("GEMINI_API_KEY is not configured")
+        genai.configure(api_key=api_key)
+        generation_config = (
+            {"response_mime_type": "application/json"} if response_format == "json" else None
+        )
+        gemini_model = genai.GenerativeModel(
+            model_name="gemini-2.0-flash",
+            system_instruction=system,
+        )
+        response = await asyncio.to_thread(
+            gemini_model.generate_content,
+            [prompt, {"mime_type": "image/png", "data": image_bytes}],
+            generation_config=generation_config,
+        )
+        return response.text
+
+    async def _call_claude(
+        self,
+        model: str,
+        system: str,
+        prompt: str,
+        response_format: str,
+        extended_thinking: bool,
+    ) -> str:
         api_key = os.getenv("ANTHROPIC_API_KEY")
         if not api_key:
             raise LLMFailure("ANTHROPIC_API_KEY is not configured")
@@ -136,7 +278,51 @@ class LLMRouter:
         if extended_thinking:
             kwargs["extra_body"] = {"thinking": {"type": "enabled", "budget_tokens": 1024}}
         message = await client.messages.create(**kwargs)
-        return "".join(block.text for block in message.content if getattr(block, "type", None) == "text")
+        return "".join(
+            block.text for block in message.content if getattr(block, "type", None) == "text"
+        )
+
+    async def _call_claude_vision(
+        self,
+        model: str,
+        system: str,
+        prompt: str,
+        image_bytes: bytes,
+        response_format: str,
+        extended_thinking: bool,
+        media_type: str,
+    ) -> str:
+        api_key = os.getenv("ANTHROPIC_API_KEY")
+        if not api_key:
+            raise LLMFailure("ANTHROPIC_API_KEY is not configured")
+        client = AsyncAnthropic(api_key=api_key)
+        kwargs = {
+            "model": model,
+            "max_tokens": 2048,
+            "system": system,
+            "messages": [
+                {
+                    "role": "user",
+                    "content": [
+                        {"type": "text", "text": prompt},
+                        {
+                            "type": "image",
+                            "source": {
+                                "type": "base64",
+                                "media_type": media_type,
+                                "data": base64.b64encode(image_bytes).decode("ascii"),
+                            },
+                        },
+                    ],
+                }
+            ],
+        }
+        if extended_thinking:
+            kwargs["extra_body"] = {"thinking": {"type": "enabled", "budget_tokens": 1024}}
+        message = await client.messages.create(**kwargs)
+        return "".join(
+            block.text for block in message.content if getattr(block, "type", None) == "text"
+        )
 
     async def _call_ollama(self, model: str, system: str, prompt: str, response_format: str) -> str:
         payload = {

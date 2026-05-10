@@ -274,10 +274,14 @@ class CompanyCache(Base):
 
     id: Mapped[str] = mapped_column(UUID(as_uuid=False), primary_key=True, server_default=text("gen_random_uuid()"))
     company_name_key: Mapped[str] = mapped_column(String(255), unique=True, nullable=False)
+    known: Mapped[bool] = mapped_column(Boolean, server_default=text("true"))
+    industry: Mapped[str | None] = mapped_column(Text)
+    what_they_do: Mapped[str | None] = mapped_column(Text)
     mission: Mapped[str | None] = mapped_column(Text)
     values_text: Mapped[str | None] = mapped_column(Text)
     recent_news: Mapped[str | None] = mapped_column(Text)
     culture_signals: Mapped[str | None] = mapped_column(Text)
+    why_interesting: Mapped[str | None] = mapped_column(Text)
     cached_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=text("NOW()"))
     expires_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=text("(NOW() + INTERVAL '7 days')"))
 

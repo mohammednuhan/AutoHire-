@@ -1,4 +1,8 @@
 import type { Metadata } from "next";
+import type { ReactNode } from "react";
+import { QueryProvider } from "./query-provider";
+import { SentryProvider } from "./sentry-provider";
+import { WebSocketProvider } from "./websocket-provider";
 import "./globals.css";
 
 export const metadata: Metadata = {
@@ -9,11 +13,17 @@ export const metadata: Metadata = {
 export default function RootLayout({
   children,
 }: Readonly<{
-  children: React.ReactNode;
+  children: ReactNode;
 }>) {
   return (
     <html lang="en">
-      <body>{children}</body>
+      <body>
+        <SentryProvider>
+          <QueryProvider>
+            <WebSocketProvider>{children}</WebSocketProvider>
+          </QueryProvider>
+        </SentryProvider>
+      </body>
     </html>
   );
 }

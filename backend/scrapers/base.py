@@ -8,7 +8,7 @@ from abc import ABC, abstractmethod
 from dataclasses import dataclass, field
 from datetime import date, datetime, timedelta, timezone
 from html import unescape
-from typing import Any
+from typing import Any, ClassVar
 from urllib.parse import urljoin, urlparse
 
 from bs4 import BeautifulSoup
@@ -23,7 +23,7 @@ class ScraperStopped(Exception):
 
 
 REALISTIC_USER_AGENT = (
-    "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) "
+    "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
     "AppleWebKit/537.36 (KHTML, like Gecko) "
     "Chrome/124.0.0.0 Safari/537.36"
 )
@@ -31,7 +31,7 @@ REALISTIC_USER_AGENT = (
 
 COMMON_HEADERS = {
     "User-Agent": REALISTIC_USER_AGENT,
-    "Accept-Language": "en-US,en;q=0.9",
+    "Accept-Language": "en-IN,en;q=0.9,hi;q=0.8",
     "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,application/json;q=0.8,*/*;q=0.7",
 }
 
@@ -67,6 +67,7 @@ class BoardScraper(ABC):
     max_daily_scrapes: int
     min_delay_seconds: int
     max_delay_seconds: int
+    _daily_scrape_counts: ClassVar[dict[tuple[str, date], int]] = {}
 
     def __init__(self) -> None:
         self._scrape_count = 0
@@ -95,13 +96,19 @@ class BoardScraper(ABC):
         if today != self._scrape_day:
             self._scrape_day = today
             self._scrape_count = 0
-        if self._scrape_count >= self.max_daily_scrapes:
+        key = (self.board_name, today)
+        for stale_key in list(self._daily_scrape_counts):
+            if stale_key[0] == self.board_name and stale_key[1] != today:
+                del self._daily_scrape_counts[stale_key]
+        daily_count = self._daily_scrape_counts.get(key, 0)
+        if daily_count >= self.max_daily_scrapes:
             raise DailyScrapeLimitExceeded(
                 f"{self.board_name} daily scrape limit reached: {self.max_daily_scrapes}"
             )
-        if self._scrape_count > 0 and self.max_delay_seconds > 0:
+        if daily_count > 0 and self.max_delay_seconds > 0:
             await self.random_delay()
-        self._scrape_count += 1
+        self._daily_scrape_counts[key] = daily_count + 1
+        self._scrape_count = daily_count + 1
 
 
 def normalize_space(value: str | None) -> str:

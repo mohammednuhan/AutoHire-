@@ -256,15 +256,15 @@ export interface AgentRunResponse {
 }
 
 export interface MetricsResponse {
-  jobs_discovered: number;
-  jobs_scored: number;
-  applications_queued: number;
-  applications_submitted: number;
-  applications_needing_human: number;
-  applications_failed: number;
-  average_score?: number | null;
-  daily_cap: number;
-  apps_used_today: number;
+  apps_sent_vs_confirmed: {
+    sent: number;
+    confirmed: number;
+    rate: number;
+  };
+  form_fill_success_rate: Record<string, number>;
+  llm_confidence_avg: number;
+  avg_time_per_application_seconds: number;
+  human_gate_trigger_rate: number;
   updated_at: ISODateTime;
 }
 
@@ -318,11 +318,11 @@ export interface ApplicationStartedEvent extends WebSocketEventBase {
 
 export interface BrowserActionEvent extends WebSocketEventBase {
   event: "BROWSER_ACTION";
-  trace_id: UUID;
+  trace_id?: UUID;
   step: number;
   action: string;
   field: string;
-  confidence: number;
+  confidence?: number;
 }
 
 export interface LLMCallEvent extends WebSocketEventBase {
@@ -347,7 +347,7 @@ export interface ApplicationSuccessEvent extends WebSocketEventBase {
   trace_id: UUID;
   company: string;
   role: string;
-  status: "ready_to_submit";
+  status: "ready_to_submit" | "submitted";
 }
 
 export interface ApplicationFailedEvent extends WebSocketEventBase {
@@ -369,7 +369,9 @@ export interface NeedsHumanEvent extends WebSocketEventBase {
     | "DREAM_COMPANY"
     | "SALARY_QUESTION"
     | "SCREENING_QUESTION"
-    | "PREREQ_FAILED";
+    | "PREREQ_FAILED"
+    | "CAPTCHA_DETECTED"
+    | "SUBMIT_CONFIRMATION_FAILED";
   field_name: string;
   question_text: string;
   draft_answer: string | null;
@@ -403,7 +405,10 @@ export interface ErrorEvent extends WebSocketEventBase {
     | "RUNGUARD_FAIL_DB"
     | "DISK_FULL"
     | "REDIS_UNAVAILABLE"
-    | "SCAN_FAILED";
+    | "SCAN_FAILED"
+    | "BLOCKED_NAVIGATION"
+    | "CAPTCHA_DETECTED"
+    | "COVER_LETTER_VALIDATION_FAILED";
   message: string;
 }
 

@@ -8,27 +8,32 @@ from typing import Any
 from alembic import command
 from alembic.config import Config
 from fastapi import FastAPI, HTTPException, Request, WebSocket, WebSocketDisconnect
+from fastapi.exceptions import RequestValidationError
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 from fastapi.staticfiles import StaticFiles
-from fastapi.exceptions import RequestValidationError
 from redis.asyncio import Redis
 from sqlalchemy import text
 
+from agent.recovery import recover_interrupted_applications
 from agent.scanner import start_scheduler, stop_scheduler
+from api.agent import router as agent_router
+from api.applications import router as applications_router
 from api.auth import decode_access_token, router as auth_router
+from api.boards import router as boards_router
+from api.feedback import router as feedback_router
 from api.jobs import router as jobs_router
+from api.metrics import router as metrics_router
 from api.resume import router as resume_router
+from api.websocket import manager as websocket_manager
+from api.websocket import router as websocket_router
 from database.session import engine
-from schemas.api_schemas import (
-    AgentStatusResponse,
-    ApplicationDetailResponse,
-    ApplicationListItem,
-    ErrorResponse,
-    MetricsResponse,
-)
+from maintenance.backup import start_backup_scheduler, stop_backup_scheduler
+from maintenance.cleanup import start_cleanup_scheduler, stop_cleanup_scheduler
+from notifications.digest import start_digest_scheduler, stop_digest_scheduler
+from notifications.followup import start_followup_scheduler, stop_followup_scheduler
+from schemas.api_schemas import ApplicationDetailResponse, ErrorResponse
 from storage import data_dir
-from websocket import websocket_manager
 
 AUTH_EXEMPT_PATHS = {"/api/health", "/api/auth/login", "/api/auth/setup"}
 
@@ -42,6 +47,13 @@ def run_migrations() -> None:
     backend_dir = Path(__file__).resolve().parent
     alembic_cfg = Config(str(backend_dir / "alembic.ini"))
     command.upgrade(alembic_cfg, "head")
+
+
+def init_sentry() -> None:
+    if os.getenv("ENVIRONMENT") == "production" and os.getenv("SENTRY_DSN"):
+        import sentry_sdk
+
+        sentry_sdk.init(dsn=os.environ["SENTRY_DSN"], traces_sample_rate=0.1)
 
 
 app = FastAPI(
@@ -95,14 +107,24 @@ async def auth_middleware(request: Request, call_next: Any) -> Any:
 
 @app.on_event("startup")
 async def startup() -> None:
+    init_sentry()
     data_dir()
     await asyncio.to_thread(run_migrations)
+    await recover_interrupted_applications()
     start_scheduler()
+    start_digest_scheduler()
+    start_backup_scheduler()
+    start_cleanup_scheduler()
+    start_followup_scheduler()
 
 
 @app.on_event("shutdown")
 async def shutdown() -> None:
     await stop_scheduler()
+    await stop_digest_scheduler()
+    await stop_backup_scheduler()
+    await stop_cleanup_scheduler()
+    await stop_followup_scheduler()
 
 
 @app.get("/api/health", tags=["system"])
@@ -124,35 +146,23 @@ async def websocket_endpoint(websocket: WebSocket) -> None:
     await websocket_manager.connect(websocket)
     try:
         while True:
-            await websocket.receive_text()
+            data = await websocket.receive_text()
+            if data == "ping":
+                await websocket.send_text("pong")
     except WebSocketDisconnect:
-        websocket_manager.disconnect(websocket)
+        await websocket_manager.disconnect(websocket)
 
 
 app.include_router(auth_router)
 app.include_router(resume_router)
 app.include_router(jobs_router)
+app.include_router(agent_router)
+app.include_router(applications_router)
+app.include_router(websocket_router)
+app.include_router(boards_router)
+app.include_router(feedback_router)
+app.include_router(metrics_router)
 app.mount("/api/files", StaticFiles(directory=str(data_dir())), name="files")
-
-
-@app.get(
-    "/api/applications",
-    response_model=list[ApplicationListItem] | ErrorResponse,
-    tags=["applications"],
-)
-async def list_applications() -> Any:
-    return not_implemented("Application listing is not implemented.")
-
-
-@app.get(
-    "/api/applications/{application_id}",
-    response_model=ApplicationDetailResponse | ErrorResponse,
-    tags=["applications"],
-)
-async def get_application(application_id: str) -> Any:
-    return not_implemented(
-        f"Application detail retrieval is not implemented for application {application_id}."
-    )
 
 
 @app.post(
@@ -171,30 +181,3 @@ async def approve_submit(application_id: str) -> Any:
 )
 async def retry_application(application_id: str) -> Any:
     return not_implemented(f"Application retry is not implemented for application {application_id}.")
-
-
-@app.get(
-    "/api/agent/status",
-    response_model=AgentStatusResponse | ErrorResponse,
-    tags=["agent"],
-)
-async def get_agent_status() -> Any:
-    return not_implemented("Agent status retrieval is not implemented.")
-
-
-@app.post(
-    "/api/agent/stop",
-    response_model=AgentStatusResponse | ErrorResponse,
-    tags=["agent"],
-)
-async def stop_agent() -> Any:
-    return not_implemented("Agent stop is not implemented.")
-
-
-@app.get(
-    "/api/metrics",
-    response_model=MetricsResponse | ErrorResponse,
-    tags=["metrics"],
-)
-async def get_metrics() -> Any:
-    return not_implemented("Metrics retrieval is not implemented.")

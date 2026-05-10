@@ -15,9 +15,12 @@ from sqlalchemy import select, text
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from agent.applicant import run_application
+from agent.preparer import prepare_application
 from database.models import Application, ApplicationEvent, Job, JobScore, Resume, Task, UserPreference
 from database.session import AsyncSessionLocal, engine
 from llm.client import LLMRouter
+from notifications.telegram import send_health_alert, send_high_score_alert
 from schemas.api_schemas import ResumeProfile, UserPreferences
 from scoring.filter import apply_filters
 from scoring.scorer import ScoringError, score_job
@@ -55,17 +58,20 @@ async def run_scan(
     boards: list[str] | None = None,
     user_id: str | None = None,
     task_type: str = "on_demand_scan",
+    scan_lock_token: str | None = None,
 ) -> None:
     started_at = datetime.now(timezone.utc)
-    lock_token = str(uuid4())
+    lock_token = scan_lock_token or str(uuid4())
     redis: Redis | None = None
-    lock_acquired = False
+    lock_acquired = scan_lock_token is not None
     heartbeat_task: asyncio.Task[None] | None = None
     jobs_found = 0
     apps_attempted = 0
 
     async with AsyncSessionLocal() as db:
         task = await _create_or_mark_task_running(db, task_id, task_type, started_at)
+        if lock_acquired:
+            redis = _redis()
         guard = await _run_guard()
         if guard is not None:
             try:
@@ -73,10 +79,15 @@ async def run_scan(
             except Exception as exc:
                 logger.info("task_fail_update_failed", extra={"task_id": task_id, "error": str(exc)})
             await _publish_event(db, guard["event"])
+            await send_health_alert("RunGuard", guard["message"])
             return
 
-        redis = _redis()
-        lock_acquired = bool(await redis.set(SCAN_LOCK_KEY, lock_token, nx=True, ex=SCAN_LOCK_TTL_SECONDS))
+        if redis is None:
+            redis = _redis()
+        if not lock_acquired:
+            lock_acquired = bool(
+                await redis.set(SCAN_LOCK_KEY, lock_token, nx=True, ex=SCAN_LOCK_TTL_SECONDS)
+            )
         if not lock_acquired:
             logger.info("scan_already_running", extra={"task_id": task_id})
             task.status = "completed"
@@ -198,6 +209,11 @@ async def run_scan(
                                 application_id=application.id if application else None,
                                 trace_id=application.trace_id if application else None,
                             )
+                            if application is not None:
+                                await prepare_application(application.id, llm_router)
+                                await db.refresh(application)
+                                if application.status == "ready_to_submit":
+                                    await run_application(application.id, llm_router)
                             if score.total_score >= 85:
                                 await _send_telegram_alert(score.total_score, job, preferences)
 
@@ -251,6 +267,16 @@ async def is_scan_running() -> bool:
     redis = _redis()
     try:
         return bool(await redis.exists(SCAN_LOCK_KEY))
+    finally:
+        await redis.aclose()
+
+
+async def acquire_scan_lock() -> str | None:
+    redis = _redis()
+    try:
+        token = str(uuid4())
+        acquired = await redis.set(SCAN_LOCK_KEY, token, nx=True, ex=SCAN_LOCK_TTL_SECONDS)
+        return token if acquired else None
     finally:
         await redis.aclose()
 
@@ -499,19 +525,7 @@ async def _publish_event(
 
 
 async def _send_telegram_alert(score: int, job: Job, preferences: UserPreferences) -> None:
-    token = os.getenv("TELEGRAM_BOT_TOKEN")
-    chat_id = preferences.telegram_chat_id or os.getenv("TELEGRAM_CHAT_ID")
-    if not token or not chat_id:
-        return
-    message = f"{score}/100 match: {job.title} at {job.company}. [Review] {job.url}"
-    try:
-        async with httpx.AsyncClient(timeout=10) as client:
-            await client.post(
-                f"https://api.telegram.org/bot{token}/sendMessage",
-                json={"chat_id": chat_id, "text": message, "disable_web_page_preview": True},
-            )
-    except Exception as exc:
-        logger.info("telegram_alert_failed", extra={"error": str(exc), "job_id": job.id})
+    await send_high_score_alert(job, score)
 
 
 def _redis() -> Redis:

@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+import logging
 from typing import Annotated, Literal
 from uuid import uuid4
 
@@ -8,10 +9,13 @@ from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy import and_, func, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from agent.scanner import is_scan_running, run_scan
+from agent.applicant import run_application
+from agent.preparer import prepare_application
+from agent.scanner import acquire_scan_lock, run_scan
 from api.auth import get_current_user
 from database.models import Application, Job, JobScore, Resume, Task, User, UserPreference
-from database.session import get_db
+from database.session import AsyncSessionLocal, get_db
+from llm.client import LLMRouter
 from schemas.api_schemas import (
     AgentRunRequest,
     AgentRunResponse,
@@ -23,10 +27,41 @@ from schemas.api_schemas import (
 )
 
 router = APIRouter(tags=["jobs"])
+logger = logging.getLogger("autohire.api.jobs")
 
 
 def api_error(status_code: int, code: str, message: str) -> HTTPException:
     return HTTPException(status_code=status_code, detail={"error": code, "message": message})
+
+
+def _start_application_preparation(application_id: str) -> None:
+    task = asyncio.create_task(_prepare_then_apply(application_id))
+    task.add_done_callback(_log_preparation_task_result)
+
+
+def _log_preparation_task_result(task: asyncio.Task[None]) -> None:
+    try:
+        task.result()
+    except Exception:
+        logger.exception("application_preparation_task_failed")
+
+
+async def _prepare_then_apply(application_id: str) -> None:
+    llm_router = LLMRouter()
+    await prepare_application(application_id, llm_router)
+    if await _ready_for_browser(application_id):
+        await run_application(application_id, llm_router)
+
+
+async def _ready_for_browser(application_id: str) -> bool:
+    async with AsyncSessionLocal() as db:
+        application = await db.get(Application, application_id)
+        return bool(
+            application
+            and application.status == "ready_to_submit"
+            and application.tailored_resume_pdf_path
+            and application.tailored_resume_docx_path
+        )
 
 
 async def _active_resume(db: AsyncSession, user_id: str) -> Resume | None:
@@ -89,10 +124,10 @@ async def list_jobs(
     per_page: Annotated[int, Query(ge=1, le=100)] = 20,
     score_min: Annotated[int | None, Query(ge=0, le=100)] = None,
     score_max: Annotated[int | None, Query(ge=0, le=100)] = None,
-    board: str | None = None,
+    board: Annotated[list[str] | None, Query()] = None,
     status: str | None = None,
     work_type: str | None = None,
-    sort: Literal["score_desc", "date_desc", "date_asc"] = "score_desc",
+    sort: Literal["score_desc", "date_desc", "date_asc", "company_asc"] = "score_desc",
 ) -> JobsPageResponse:
     resume = await _active_resume(db, current_user.id)
     score_join = JobScore.job_id == Job.id
@@ -101,7 +136,7 @@ async def list_jobs(
 
     conditions = []
     if board:
-        conditions.append(Job.board == board)
+        conditions.append(Job.board.in_(board))
     if status:
         conditions.append(Job.status == status)
     if work_type:
@@ -117,7 +152,9 @@ async def list_jobs(
         total_query = total_query.where(and_(*conditions))
         list_query = list_query.where(and_(*conditions))
 
-    if sort == "date_asc":
+    if sort == "company_asc":
+        list_query = list_query.order_by(Job.company.asc(), Job.title.asc())
+    elif sort == "date_asc":
         list_query = list_query.order_by(Job.scraped_at.asc())
     elif sort == "date_desc":
         list_query = list_query.order_by(Job.scraped_at.desc())
@@ -191,7 +228,9 @@ async def queue_job(
         application.is_dream_company = job.company.lower() in dream_companies
     job.status = "queued"
     await db.flush()
+    application_id = application.id
     await db.commit()
+    _start_application_preparation(application_id)
     return {"job_id": job.id, "application_id": application.id, "status": "queued"}
 
 
@@ -214,12 +253,11 @@ async def run_agent_scan(
     payload: AgentRunRequest | None = None,
 ) -> AgentRunResponse:
     try:
-        if await is_scan_running():
-            raise api_error(409, "SCAN_ALREADY_RUNNING", "A scan is already running")
-    except HTTPException:
-        raise
+        scan_lock_token = await acquire_scan_lock()
     except Exception as exc:
         raise api_error(503, "REDIS_UNAVAILABLE", f"Could not check scan lock: {exc}") from exc
+    if scan_lock_token is None:
+        raise api_error(409, "SCAN_ALREADY_RUNNING", "A scan is already running")
 
     task_id = uuid4()
     asyncio.create_task(
@@ -228,6 +266,7 @@ async def run_agent_scan(
             boards=payload.boards if payload else None,
             user_id=current_user.id,
             task_type="on_demand_scan",
+            scan_lock_token=scan_lock_token,
         )
     )
     return AgentRunResponse(task_id=task_id, status="started")

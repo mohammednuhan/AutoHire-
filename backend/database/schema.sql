@@ -207,10 +207,14 @@ CREATE TABLE form_template_cache (
 CREATE TABLE company_cache (
     id                    UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     company_name_key      VARCHAR(255) NOT NULL UNIQUE,  -- lowercase, stripped
+    known                 BOOLEAN DEFAULT true,
+    industry              TEXT,
+    what_they_do          TEXT,
     mission               TEXT,
     values_text           TEXT,
     recent_news           TEXT,
     culture_signals       TEXT,
+    why_interesting       TEXT,
     cached_at             TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
     expires_at            TIMESTAMP WITH TIME ZONE DEFAULT (NOW() + INTERVAL '7 days')
 );

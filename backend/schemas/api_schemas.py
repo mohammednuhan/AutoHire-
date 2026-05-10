@@ -263,15 +263,11 @@ class AgentRunResponse(BaseModel):
 
 
 class MetricsResponse(BaseModel):
-    jobs_discovered: int = 0
-    jobs_scored: int = 0
-    applications_queued: int = 0
-    applications_submitted: int = 0
-    applications_needing_human: int = 0
-    applications_failed: int = 0
-    average_score: float | None = None
-    daily_cap: int
-    apps_used_today: int
+    apps_sent_vs_confirmed: dict[str, float | int]
+    form_fill_success_rate: dict[str, float]
+    llm_confidence_avg: float
+    avg_time_per_application_seconds: int
+    human_gate_trigger_rate: float
     updated_at: datetime
 
 
@@ -354,7 +350,7 @@ class ApplicationSuccessEvent(WebSocketEvent):
     trace_id: UUID
     company: str
     role: str
-    status: Literal["ready_to_submit"]
+    status: Literal["ready_to_submit", "submitted"]
 
 
 class ApplicationFailedEvent(WebSocketEvent):
@@ -377,6 +373,8 @@ class NeedsHumanEvent(WebSocketEvent):
         "SALARY_QUESTION",
         "SCREENING_QUESTION",
         "PREREQ_FAILED",
+        "CAPTCHA_DETECTED",
+        "SUBMIT_CONFIRMATION_FAILED",
     ]
     field_name: str
     question_text: str
@@ -412,6 +410,9 @@ class ErrorEvent(WebSocketEvent):
         "DISK_FULL",
         "REDIS_UNAVAILABLE",
         "SCAN_FAILED",
+        "BLOCKED_NAVIGATION",
+        "CAPTCHA_DETECTED",
+        "COVER_LETTER_VALIDATION_FAILED",
     ]
     message: str
 
