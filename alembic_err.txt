@@ -1,0 +1,10 @@
+ Container autohire-db-1 Running 
+ Container autohire-cache-1 Running 
+ Container autohire-db-1 Waiting 
+ Container autohire-cache-1 Waiting 
+ Container autohire-cache-1 Healthy 
+ Container autohire-db-1 Healthy 
+ Container autohire-backend-run-9409652a7abf Creating 
+ Container autohire-backend-run-9409652a7abf Created 
+INFO  [alembic.runtime.migration] Context impl PostgresqlImpl.
+INFO  [alembic.runtime.migration] Will assume transactional DDL.
