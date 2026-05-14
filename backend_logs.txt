@@ -1,0 +1,27 @@
+﻿docker : /app/llm/client.py:10: FutureWarning: 
+At line:1 char:12
++ docker ps; docker logs autohire-backend-1 2>&1 | 
+Out-File -FilePath b ...
++            ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+    + CategoryInfo          : NotSpecified: (/app/l 
+   lm/client.py:10: FutureWarning: :String) [], Re  
+  moteException
+    + FullyQualifiedErrorId : NativeCommandError
+ 
+
+All support for the `google.generativeai` package 
+has ended. It will no longer be receiving 
+updates or bug fixes. Please switch to the 
+`google.genai` package as soon as possible.
+See README for more details:
+
+https://github.com/google-gemini/deprecated-generati
+ve-ai-python/blob/main/README.md
+
+  import google.generativeai as genai
+INFO:     Started server process [1]
+INFO:     Waiting for application startup.
+INFO  [alembic.runtime.migration] Context impl 
+PostgresqlImpl.
+INFO  [alembic.runtime.migration] Will assume 
+transactional DDL.

@@ -1,0 +1,1 @@
+self.__REACT_LOADABLE_MANIFEST="{\"app\\\\sentry-provider.tsx -> @sentry/nextjs\":{\"id\":\"app\\\\sentry-provider.tsx -> @sentry/nextjs\",\"files\":[\"static/chunks/_app-pages-browser_node_modules_sentry_nextjs_build_esm_index_client_js.js\"]}}"

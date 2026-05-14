@@ -1,0 +1,22 @@
+ Container autohire-db-1 Running 
+ Container autohire-cache-1 Running 
+ Container autohire-db-1 Waiting 
+ Container autohire-cache-1 Waiting 
+ Container autohire-db-1 Healthy 
+ Container autohire-cache-1 Healthy 
+ Container autohire-backend-run-63c01d94a2b0 Creating 
+ Container autohire-backend-run-63c01d94a2b0 Created 
+/app/llm/client.py:10: FutureWarning: 
+
+All support for the `google.generativeai` package has ended. It will no longer be receiving 
+updates or bug fixes. Please switch to the `google.genai` package as soon as possible.
+See README for more details:
+
+https://github.com/google-gemini/deprecated-generative-ai-python/blob/main/README.md
+
+  import google.generativeai as genai
+INFO:     Started server process [1]
+INFO:     Waiting for application startup.
+INFO  [alembic.runtime.migration] Context impl PostgresqlImpl.
+INFO  [alembic.runtime.migration] Will assume transactional DDL.
+
